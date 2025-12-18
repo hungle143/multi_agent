@@ -1,0 +1,53 @@
+version: '3.8'  # Phiên bản cú pháp của Docker
+
+services:       # Danh sách các phần mềm muốn chạy
+  redis_db:     # Tên đặt cho con Redis này 
+    image: redis/redis-stack:latest  # Tải bản Redis mới nhất từ kho chứa
+    container_name: agent_memory_redis # Tên hiển thị trong Docker Desktop cho dễ tìm
+    
+    ports:
+      - "6379:6379" 
+      # Ý nghĩa: Cổng 6379 của máy ảo Docker <-> nối với Cổng 6379 của máy thật của bạn.
+      # Nhờ dòng này, code Python chạy ở ngoài mới chui vào trong Docker được.
+      
+    volumes:
+      - redis_data:/data 
+      # Ý nghĩa quan trọng: "Ánh xạ ổ cứng".
+      # Nếu bạn tắt Docker, dữ liệu trong RAM sẽ mất.
+      # Dòng này giúp lưu dữ liệu ra một vùng riêng (redis_data), để lần sau bật lại thì Agent vẫn nhớ chuyện cũ.
+      
+    restart: always 
+    # Nếu Redis bị lỗi sập, tự động bật lại ngay.
+  redis_insight:
+    image: redis/redisinsight:latest
+    container_name: redis_ui
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis_db
+
+  petrol_api:
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.11
+    container_name: petrol_api
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: uvicorn tools.mock_petrol_api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis_db
+
+  app:
+    build: .
+    container_name: multi_agent_app
+    env_file: .env
+    depends_on:
+      - redis_db
+      - petrol_api
+    stdin_open: true
+    tty: true
+    command: python main.py
+
+volumes:
+  redis_data: # Khai báo vùng lưu trữ tên là redis_data

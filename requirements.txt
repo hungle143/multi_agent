@@ -1,0 +1,15 @@
+# --- Core Framework ---
+langchain
+langchain-core
+langchain-community
+langgraph
+langgraph-checkpoint-redis
+
+# --- Models & Tools ---
+langchain-openai
+tavily-python
+httpx
+
+# --- Utils ---
+redis
+python-dotenv
