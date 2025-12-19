@@ -1,14 +1,27 @@
 import re
+import os
+from dotenv import load_dotenv
 from langchain_core.messages import (
     SystemMessage,
     HumanMessage,
     AIMessage,
     messages_from_dict,
+    message_to_dict,
 )
 
 from state import AgentState
 from prompts import ROUTER_SYSTEM_PROMPT
 from agents.shared import llm
+
+load_dotenv()
+
+# Load config
+def _str_to_bool(value: str) -> bool:
+    return value.lower() in ('true', '1', 'yes', 'on')
+
+ENABLE_SEARCH = _str_to_bool(os.getenv("ENABLE_SEARCH_AGENT", "true"))
+ENABLE_MATH = _str_to_bool(os.getenv("ENABLE_MATH_AGENT", "true"))
+ENABLE_PETROL = _str_to_bool(os.getenv("ENABLE_PETROL_AGENT", "true"))
 
 
 async def orchestrator_node(state: AgentState):
@@ -91,14 +104,46 @@ async def orchestrator_node(state: AgentState):
         else:
             decisions = ["FINISH"]
 
-    # Lọc keyword hợp lệ
+    # Lọc keyword hợp lệ - kiểm tra enabled agents
     final_actions = []
+    disabled_agents_used = []
+    
     if "SEARCH" in decisions and not search_done:
-        final_actions.append("SEARCH")
+        if ENABLE_SEARCH:
+            final_actions.append("SEARCH")
+        else:
+            disabled_agents_used.append("SEARCH")
+    
     if "MATH" in decisions and not math_done:
-        final_actions.append("MATH")
+        if ENABLE_MATH:
+            final_actions.append("MATH")
+        else:
+            disabled_agents_used.append("MATH")
+    
     if "PETROL" in decisions and not petrol_done:
-        final_actions.append("PETROL")
+        if ENABLE_PETROL:
+            final_actions.append("PETROL")
+        else:
+            disabled_agents_used.append("PETROL")
+
+    # Xử lý disabled agents
+    if disabled_agents_used and not final_actions:
+        # TẤT CẢ agents yêu cầu đều disabled
+        agent_names = {"SEARCH": "Search", "MATH": "Math", "PETROL": "Petrol"}
+        disabled_msg = f"[DISABLED]: {', '.join([agent_names[a] for a in disabled_agents_used])}"
+        return {
+            "next_step": "FINISH",
+            "messages": [message_to_dict(AIMessage(content=disabled_msg))]
+        }
+    
+    if disabled_agents_used and final_actions:
+        # CÓ agents enabled nhưng CÓ agents bị disable -> notify
+        agent_names = {"SEARCH": "Search", "MATH": "Math", "PETROL": "Petrol"}
+        disabled_msg = f"[PARTIAL]: {', '.join([agent_names[a] for a in disabled_agents_used])}"
+        return {
+            "next_step": final_actions,
+            "messages": [message_to_dict(AIMessage(content=disabled_msg))]
+        }
 
     # Default là FINISH
     if not final_actions or "FINISH" in decisions:

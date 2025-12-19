@@ -15,44 +15,67 @@ from agents import NODES
 # Kết nối Redis
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 
+# --- LOAD CONFIG TỪ .ENV ---
+def _str_to_bool(value: str) -> bool:
+    return value.lower() in ('true', '1', 'yes', 'on')
+
+ENABLE_SEARCH = _str_to_bool(os.getenv("ENABLE_SEARCH_AGENT", "true"))
+ENABLE_MATH = _str_to_bool(os.getenv("ENABLE_MATH_AGENT", "true"))
+ENABLE_PETROL = _str_to_bool(os.getenv("ENABLE_PETROL_AGENT", "true"))
+
 # Build Graph
 workflow = StateGraph(AgentState)
-for name, node in NODES.items():
-    workflow.add_node(name, node)
+
+# Luôn add router và responder
+workflow.add_node("router", NODES["router"])
+workflow.add_node("responder", NODES["responder"])
+
+# Chỉ add agent nếu enabled
+if ENABLE_SEARCH:
+    workflow.add_node("search_agent", NODES["search_agent"])
+if ENABLE_MATH:
+    workflow.add_node("math_agent", NODES["math_agent"])
+if ENABLE_PETROL:
+    workflow.add_node("petrol_agent", NODES["petrol_agent"])
 
 workflow.set_entry_point("router")
 
 # --- LOGIC QUAN TRỌNG: ROUTING ---
 def route_logic(state):
-    # Lấy giá trị next_step từ output của Router Node
     step = state["next_step"]
     
-    # Nếu Router trả về List (Chạy song song)
     if isinstance(step, list):
-        # Map từ Keyword sang Tên Node
         destinations = []
         for s in step:
-            if s == "SEARCH": destinations.append("search_agent")
-            elif s == "MATH": destinations.append("math_agent")
-            elif s == "PETROL": destinations.append("petrol_agent")
-        return destinations # Trả về list các node cần đến
+            if s == "SEARCH" and ENABLE_SEARCH: 
+                destinations.append("search_agent")
+            elif s == "MATH" and ENABLE_MATH: 
+                destinations.append("math_agent")
+            elif s == "PETROL" and ENABLE_PETROL: 
+                destinations.append("petrol_agent")
+        return destinations if destinations else "responder"
     
-    # Nếu trả về string đơn (FINISH)
     if step == "FINISH":
         return "responder"
     
-    return "responder" # Fallback
+    return "responder"
 
-workflow.add_conditional_edges(
-    "router",
-    route_logic,
-    # Map các khả năng có thể xảy ra
-    ["search_agent", "math_agent", "petrol_agent", "responder"] 
-)
+conditional_edges = ["responder"]
+if ENABLE_SEARCH:
+    conditional_edges.append("search_agent")
+if ENABLE_MATH:
+    conditional_edges.append("math_agent")
+if ENABLE_PETROL:
+    conditional_edges.append("petrol_agent")
 
-workflow.add_edge("search_agent", "router")
-workflow.add_edge("math_agent", "router")
-workflow.add_edge("petrol_agent", "router")
+workflow.add_conditional_edges("router", route_logic, conditional_edges)
+
+if ENABLE_SEARCH:
+    workflow.add_edge("search_agent", "router")
+if ENABLE_MATH:
+    workflow.add_edge("math_agent", "router")
+if ENABLE_PETROL:
+    workflow.add_edge("petrol_agent", "router")
 workflow.add_edge("responder", END)
 
 
@@ -65,6 +88,7 @@ async def run_repl():
 
     thread_id = os.getenv("THREAD_ID") or str(uuid.uuid4())
     print(f"--- REPL (thread_id={thread_id}) ---")
+    print(f"🔍 Search: {'✅' if ENABLE_SEARCH else '❌'} | 🧮 Math: {'✅' if ENABLE_MATH else '❌'} | ⛽ Petrol: {'✅' if ENABLE_PETROL else '❌'}")
     print("Nhập câu hỏi, Enter để thoát.")
 
     while True:
